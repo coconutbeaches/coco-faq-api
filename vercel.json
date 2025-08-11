@@ -6,6 +6,9 @@
     },
     "api/faq-search.js": {
       "runtime": "@vercel/node@3.0.7"
+    },
+    "api/createFaq.js": {
+      "runtime": "@vercel/node@3.0.7"
     }
   }
 }
