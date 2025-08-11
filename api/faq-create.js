@@ -80,8 +80,8 @@ router.post('/faq-create', async (req, res) => {
       }
 
       // Extract Q, A, K from raw
-      const qMatch = raw.match(/Q\s+([^A]+)(?=\s+A|$)/i);
-      const aMatch = raw.match(/A\s+([^K]+)(?=\s+K|$)/i);
+      const qMatch = raw.match(/Q\s+(.+?)\s+A/i);
+      const aMatch = raw.match(/A\s+(.+?)\s+K/i);
       const kMatch = raw.match(/K\s+(.+)/i);
 
       question = question || (qMatch ? qMatch[1].trim() : null);
