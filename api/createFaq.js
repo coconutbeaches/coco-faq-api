@@ -81,14 +81,36 @@ export default async function handler(req, res) {
         });
       }
 
-      // Extract Q, A, K from raw with improved regex patterns
+      // Extract Q, A, K from raw - simpler approach
       const qMatch = raw.match(/Q\s+(.+?)\s+A/i);
-      const aMatch = raw.match(/A\s+([^K]+)(?=\s+K|$)/i);
-      const kMatch = raw.match(/K\s+(.+)/i);
+      const kMatch = raw.match(/K\s+(.+)$/i);
 
-      question = question || (qMatch ? qMatch[1].trim() : null);
-      answer = answer || (aMatch ? aMatch[1].trim() : null);
-      keywords = keywords || (kMatch ? kMatch[1].split(',').map(k => k.trim()) : null);
+      let parsedQuestion = null;
+      let parsedAnswer = null;
+      let parsedKeywords = null;
+
+      if (qMatch) {
+        parsedQuestion = qMatch[1].replace(/^Q\s*/i, "").trim();
+      }
+
+      if (qMatch && kMatch) {
+        // Extract everything between 'A' and 'K'
+        const afterA = raw.substring(qMatch.index + qMatch[0].length);
+        const beforeK = afterA.substring(0, afterA.lastIndexOf('K'));
+        parsedAnswer = beforeK.trim();
+      } else if (qMatch) {
+        // No K section, extract everything after A
+        const afterA = raw.substring(qMatch.index + qMatch[0].length);
+        parsedAnswer = afterA.trim();
+      }
+
+      if (kMatch) {
+        parsedKeywords = kMatch[1].split(',').map(k => k.trim());
+      }
+
+      question = question || parsedQuestion;
+      answer = answer || parsedAnswer;
+      keywords = keywords || parsedKeywords;
     }
 
     if (!question || !answer) {
