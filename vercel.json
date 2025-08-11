@@ -9,6 +9,18 @@
     },
     "api/createFaq.js": {
       "runtime": "@vercel/node@3.0.7"
+    },
+    "api/faq-insert.js": {
+      "runtime": "@vercel/node@3.0.7"
+    },
+    "api/faq-categories.js": {
+      "runtime": "@vercel/node@3.0.7"
+    },
+    "api/list-faqs.js": {
+      "runtime": "@vercel/node@3.0.7"
+    },
+    "api/test-supabase.js": {
+      "runtime": "@vercel/node@3.0.7"
     }
   }
 }
