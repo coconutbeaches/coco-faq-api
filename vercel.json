@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "functions": {
+    "api/faq-create.js": {
+      "runtime": "@vercel/node@3.0.7"
+    },
+    "api/faq-search.js": {
+      "runtime": "@vercel/node@3.0.7"
+    }
+  }
+}

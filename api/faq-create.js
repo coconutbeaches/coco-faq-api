@@ -1,8 +1,6 @@
-import express from 'express';
 import { createClient } from '@supabase/supabase-js';
 import natural from 'natural';
 
-const router = express.Router();
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 // Expanded trigger phrases (lowercase)
@@ -66,7 +64,11 @@ async function detectCategory(question, providedCategory) {
   return 'general';
 }
 
-router.post('/faq-create', async (req, res) => {
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
   try {
     let { category, question, keywords, answer, is_active = true, image_url, raw } = req.body;
 
@@ -79,9 +81,9 @@ router.post('/faq-create', async (req, res) => {
         });
       }
 
-      // Extract Q, A, K from raw
+      // Extract Q, A, K from raw with improved regex patterns
       const qMatch = raw.match(/Q\s+(.+?)\s+A/i);
-      const aMatch = raw.match(/A\s+(.+?)\s+K/i);
+      const aMatch = raw.match(/A\s+([^K]+)(?=\s+K|$)/i);
       const kMatch = raw.match(/K\s+(.+)/i);
 
       question = question || (qMatch ? qMatch[1].trim() : null);
@@ -131,6 +133,4 @@ router.post('/faq-create', async (req, res) => {
       confirmation_message: 'Sorry, there was an error while adding your FAQ.'
     });
   }
-});
-
-export default router;
+}

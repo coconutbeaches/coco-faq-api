@@ -9,8 +9,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
+  "engines": {
+    "node": "18.x"
+  },
   "dependencies": {
-    "@supabase/supabase-js": "^2.54.0"
+    "@supabase/supabase-js": "^2.54.0",
+    "express": "^4.21.2",
+    "natural": "^8.0.1"
   }
 }
