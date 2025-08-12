@@ -69,7 +69,24 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  // Add CORS headers for better compatibility
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   try {
+    // Add environment variable validation
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.error('Missing Supabase environment variables');
+      return res.status(500).json({
+        error: 'Server configuration error',
+        confirmation_message: 'Sorry, there was a server configuration issue.'
+      });
+    }
     let { category, question, keywords, answer, is_active = true, image_url, raw } = req.body;
 
     // If raw input provided, parse it
