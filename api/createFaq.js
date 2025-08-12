@@ -26,6 +26,14 @@ function isTriggerMatch(input) {
   });
 }
 
+// Helper: check if raw input looks like a Q/A format
+function isQAFormat(input) {
+  if (!input) return false;
+  const normalized = input.trim();
+  // Check for Q: ... A: ... pattern
+  return /Q:\s*.+A:\s*.+/i.test(normalized);
+}
+
 // Helper: extract keywords automatically from question+answer
 function extractKeywords(question, answer) {
   if (!question && !answer) return [];
@@ -61,6 +69,7 @@ async function detectCategory(question, providedCategory) {
   if (/(food|drink|restaurant|menu|breakfast)/.test(q)) return 'dining';
   if (/(bike|kayak|snorkel|tour|trip)/.test(q)) return 'activities';
   if (/(policy|rules|pets|smoke)/.test(q)) return 'policies';
+  if (/(weather|rain|sun|temperature|climate)/.test(q)) return 'weather';
   return 'general';
 }
 
@@ -87,42 +96,40 @@ export default async function handler(req, res) {
         confirmation_message: 'Sorry, there was a server configuration issue.'
       });
     }
+
     let { category, question, keywords, answer, is_active = true, image_url, raw } = req.body;
 
     // If raw input provided, parse it
     if (raw) {
-      if (!isTriggerMatch(raw)) {
+      // Check if it's a Q/A format OR has trigger phrase
+      const hasValidFormat = isTriggerMatch(raw) || isQAFormat(raw);
+      
+      if (!hasValidFormat) {
         return res.status(400).json({
-          error: 'Trigger phrase not detected',
-          confirmation_message: 'I did not detect a valid FAQ command.'
+          error: 'Invalid FAQ format',
+          confirmation_message: 'Please provide FAQ in Q: ... A: ... format or include a trigger phrase.'
         });
       }
 
-      // Extract Q, A, K from raw - simpler approach
-      const qMatch = raw.match(/Q\s+(.+?)\s+A/i);
-      const kMatch = raw.match(/K\s+(.+)$/i);
+      // Extract Q, A, K from raw - improved approach
+      const qMatch = raw.match(/Q:\s*(.+?)(?=\s*A:|$)/i);
+      const aMatch = raw.match(/A:\s*(.+?)(?=\s*K:|$)/i);
+      const kMatch = raw.match(/K:\s*(.+)$/i);
 
       let parsedQuestion = null;
       let parsedAnswer = null;
       let parsedKeywords = null;
 
       if (qMatch) {
-        parsedQuestion = qMatch[1].replace(/^Q\s*/i, "").trim();
+        parsedQuestion = qMatch[1].trim();
       }
 
-      if (qMatch && kMatch) {
-        // Extract everything between 'A' and 'K'
-        const afterA = raw.substring(qMatch.index + qMatch[0].length);
-        const beforeK = afterA.substring(0, afterA.lastIndexOf('K'));
-        parsedAnswer = beforeK.trim();
-      } else if (qMatch) {
-        // No K section, extract everything after A
-        const afterA = raw.substring(qMatch.index + qMatch[0].length);
-        parsedAnswer = afterA.trim();
+      if (aMatch) {
+        parsedAnswer = aMatch[1].trim();
       }
 
       if (kMatch) {
-        parsedKeywords = kMatch[1].split(',').map(k => k.trim());
+        parsedKeywords = kMatch[1].split(',').map(k => k.trim()).filter(k => k.length > 0);
       }
 
       question = question || parsedQuestion;
@@ -145,6 +152,8 @@ export default async function handler(req, res) {
     // Detect category dynamically
     category = await detectCategory(question, category);
 
+    console.log('Creating FAQ:', { category, question, keywords, answer });
+
     // Insert into DB
     const { data, error } = await supabase
       .from('chatbot_faqs')
@@ -159,7 +168,12 @@ export default async function handler(req, res) {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase insert error:', error);
+      throw error;
+    }
+
+    console.log('FAQ created successfully:', data);
 
     return res.status(201).json({
       ...data,
