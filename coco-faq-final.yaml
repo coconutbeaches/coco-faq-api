@@ -1,0 +1,161 @@
+openapi: 3.0.0
+info:
+  title: Coco FAQ API
+  version: 1.0.1
+  description: |
+    Voice + text API for managing Coconut Beach FAQs 🏝️
+    - Voice flow: "Coco new faq…" → Confirm/Cancel
+    - Auto pushes to both webhook + Supabase
+    - Auto-categorizes FAQs based on keywords
+
+servers:
+  - url: https://faq-webhook.vercel.app
+    description: Voice-friendly webhook
+
+tags:
+  - name: Search
+    description: Endpoints for finding FAQs
+  - name: Management
+    description: Endpoints for creating FAQs
+  - name: Categories
+    description: FAQ category listing
+
+paths:
+  /create:
+    post:
+      tags: [Management]
+      operationId: createFaqWebhook
+      summary: Create FAQ via webhook
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                question:
+                  type: string
+                answer:
+                  type: string
+      responses:
+        "200":
+          description: FAQ created via webhook
+
+  /insertFaq:
+    post:
+      tags: [Management]
+      operationId: insertFaq
+      summary: Insert FAQ into Supabase
+      x-openai-isConsequential: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category:
+                  type: string
+                question:
+                  type: string
+                keywords:
+                  type: array
+                  items:
+                    type: string
+                answer:
+                  type: string
+                is_active:
+                  type: boolean
+      responses:
+        "200":
+          description: FAQ inserted into Supabase
+
+x-coco-config:
+  voice_input_handler: |
+    let session = {}; // temporary in-memory session for FAQs
+
+    function detectCategory(question) {
+      const q = question.toLowerCase();
+      if (q.includes("check in") || q.includes("check out") || q.includes("arrival") || q.includes("checkout")) return "check-in & check-out";
+      if (q.includes("wifi") || q.includes("internet") || q.includes("network")) return "connectivity";
+      if (q.includes("menu") || q.includes("food") || q.includes("restaurant") || q.includes("vegan") || q.includes("vegetarian")) return "food & dining";
+      if (q.includes("taxi") || q.includes("ferry") || q.includes("airport") || q.includes("transfer") || q.includes("pier")) return "arrival & transport";
+      if (q.includes("swim") || q.includes("beach") || q.includes("pool") || q.includes("sea")) return "beach & safety";
+      if (q.includes("baby") || q.includes("kids") || q.includes("family") || q.includes("cot")) return "family";
+      if (q.includes("event") || q.includes("birthday") || q.includes("party")) return "events & groups";
+      if (q.includes("eco") || q.includes("sustain") || q.includes("environment")) return "eco & environment";
+      if (q.includes("emergency") || q.includes("urgent") || q.includes("medical")) return "emergencies";
+      if (q.includes("massage") || q.includes("gym") || q.includes("amenities") || q.includes("library") || q.includes("parking")) return "amenities & facilities";
+      return "general";
+    }
+
+    async function handleVoiceFAQ(text) {
+      try {
+        const lowerText = text.trim().toLowerCase();
+
+        // ✅ Confirmation flow
+        if (lowerText.includes('confirmed') || lowerText.includes('yes') || lowerText.includes('confirm')) {
+          console.log('FAQ confirmation received via voice');
+          if (session.pendingFaq) {
+            const { question, answer } = session.pendingFaq;
+            try {
+              // Detect category
+              const category = detectCategory(question);
+
+              // Push to webhook (using full URL)
+              await fetch("https://faq-webhook.vercel.app/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ question, answer })
+              });
+
+              // Note: The webhook already pushes to Supabase, so we don't need the second call
+              // This avoids duplication
+
+              session.pendingFaq = null;
+              return `✅ Perfect! FAQ added in *${category}*: "${question}" → "${answer}"`;
+            } catch (err) {
+              console.error("Error saving FAQ:", err);
+              return "⚠️ Got your confirmation, but something went wrong saving it. Can you repeat?";
+            }
+          } else {
+            return "I heard you, but I'm not sure which FAQ you were confirming. Can you repeat?";
+          }
+        }
+
+        // ❌ Cancel flow
+        if (lowerText.includes('cancel') || lowerText.includes('no')) {
+          console.log('FAQ cancelled via voice');
+          session.pendingFaq = null;
+          return "Okay, nothing saved 🌴";
+        }
+
+        // 🎙 Trigger new FAQ
+        const triggerRegex = /^new faq\b|^add faq\b|^make faq\b|^create faq\b|^faq\b/i;
+        if (triggerRegex.test(lowerText)) {
+          // Parse Q + A (multiple patterns for flexibility)
+          let match = text.match(/question[,:\s]+(.+?)[,\s]+answer[,:\s]+(.+)/i);
+          if (!match) {
+            match = text.match(/q[,:\s]+(.+?)[,\s]+a[,:\s]+(.+)/i);
+          }
+          if (!match) {
+            match = text.match(/(.+?)\s{3,}(.+)/i); // fallback: lots of spaces
+          }
+          
+          if (match) {
+            const question = match[1].trim();
+            const answer = match[2].trim();
+            session.pendingFaq = { question, answer };
+            return `Got it! New FAQ: "${question}" → "${answer}". ✅ Confirm?`;
+          } else {
+            return `🎤 I heard your FAQ request. Could you format it as: "new FAQ, question: [your question], answer: [your answer]"?`;
+          }
+        }
+
+        return null; // no action
+      } catch (err) {
+        console.error("Voice handler error:", err);
+        return "⚠️ Something went wrong processing your FAQ.";
+      }
+    }
