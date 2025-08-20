@@ -200,7 +200,7 @@ paths:
         - Management
       operationId: createFaqWebhook
       summary: Create a new FAQ entry instantly via webhook
-      x-openai-isConsequential: true
+      x-openai-isConsequential: false
       requestBody:
         required: true
         content:
@@ -216,7 +216,7 @@ paths:
         - Management
       operationId: insertFaq
       summary: Insert FAQ into Supabase `chatbot_faqs`
-      x-openai-isConsequential: true
+      x-openai-isConsequential: false
       servers:
         - url: https://wcplwmvbhreevxvsdmog.supabase.co
       security:
