@@ -1,0 +1,237 @@
+openapi: 3.1.0
+info:
+  title: Coco FAQ API (Webhook + Supabase Sync + Auto Categories)
+  description: |
+    Manage FAQs at Coconut Beach.
+    - Webhook: instant creation for voice/automation
+    - Supabase: database persistence in `chatbot_faqs`
+    - Auto-categorization: assigns FAQs to the right category
+  version: 3.6.2
+servers:
+  - url: https://faq-webhook.vercel.app
+    description: Voice-friendly webhook
+tags:
+  - name: Search
+    description: Endpoints for finding FAQs
+  - name: Management
+    description: Endpoints for creating FAQs
+  - name: Categories
+    description: FAQ category listing
+voice_input_handler: |
+  async function handleVoiceFAQ(text) {
+    console.log('Voice handler triggered with text:', text);
+    
+    try {
+      const lowerText = text.trim().toLowerCase();
+      console.log('Processed text:', lowerText);
+      
+      const triggerRegex = /^\/faq\b|^slash faq\b|^new faq\b|^add faq\b|^make faq\b|^new question\b|^create faq\b|^faq\b/i;
+      
+      if (triggerRegex.test(lowerText)) {
+        console.log('FAQ trigger detected');
+        
+        let cleaned = text.replace(triggerRegex, '').trim();
+        console.log('Cleaned text:', cleaned);
+
+        const patterns = [
+          /(?:q:|question:|ask:)?\s*(.+?)\s*(?:a:|answer:|reply:)?\s*(.+)/i,
+          /(.+?)\s{3,}(.+)/i
+        ];
+
+        let question = '';
+        let answer = '';
+
+        for (const pattern of patterns) {
+          const match = cleaned.match(pattern);
+          if (match) {
+            question = match[1].trim();
+            answer = match[2].trim();
+            console.log('Pattern matched - Q:', question, 'A:', answer);
+            break;
+          }
+        }
+
+        if (!question && cleaned) {
+          const splitIndex = cleaned.indexOf('?') !== -1
+            ? cleaned.indexOf('?') + 1
+            : cleaned.indexOf('.') !== -1
+              ? cleaned.indexOf('.') + 1
+              : -1;
+          if (splitIndex > 0) {
+            question = cleaned.slice(0, splitIndex).trim();
+            answer = cleaned.slice(splitIndex).trim();
+            console.log('Sentence split - Q:', question, 'A:', answer);
+          } else {
+            question = cleaned;
+            answer = '';
+          }
+        }
+
+        if (!question || !answer) {
+          console.log('Missing question or answer:', { question, answer });
+          return "⚠️ I need both a question and answer. Try: 'Coco, new FAQ. Question: What time is breakfast? Answer: Breakfast is 7-10am.'";
+        }
+
+        console.log('Making webhook call with:', { question, answer });
+        
+        // Direct webhook call (bypasses OpenAI confirmation requirement)
+        const webhookResponse = await fetch('https://faq-webhook.vercel.app/create', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            question: question,
+            answer: answer
+          })
+        });
+        
+        const result = await webhookResponse.json();
+        console.log('Webhook response:', result);
+        
+        if (!webhookResponse.ok) {
+          console.error('Webhook error:', result);
+          return `⚠️ Sorry, there was an error creating your FAQ: ${result.error || 'Unknown error'}`;
+        }
+
+        return `✅ Got it! I've added your FAQ: "${question}" (ID: ${result.id})`;
+      }
+
+      console.log('No FAQ trigger detected');
+      return `👋 I heard: "${text}". This wasn't an FAQ command, so let's continue chatting normally.`;
+      
+    } catch (err) {
+      console.error('Voice handler error:', err);
+      return `⚠️ Sorry, something went wrong while processing your voice command: ${err.message}`;
+    }
+  }
+commands:
+  - name: faq_creation
+    description: Create a new FAQ entry from a question and answer.
+    triggers:
+      - /^\/faq\b/i
+      - /^slash faq\b/i
+      - /^new faq\b/i
+      - /^add faq\b/i
+      - /^make faq\b/i
+      - /^new question\b/i
+    input_parsing:
+      type: regex
+      patterns:
+        - pattern: (?:q:|question:|ask:)?\s*(.+?)\s*(?:a:|answer:|reply:)?\s*(.+)
+          groups:
+            question: 1
+            answer: 2
+        - pattern: (.+?)\s{3,}(.+)
+          groups:
+            question: 1
+            answer: 2
+    fallback_if_no_match:
+      split_by_first_sentence: true
+    ai_fallback_generate_question: true
+    ai_fallback_generate_question_prompt: |
+      You are CocoGPT, the Coconut Beach FAQ assistant.
+      The user has provided an answer but no explicit question.
+      Your task is to create a short, clear, guest-friendly FAQ question based on the answer.
+
+      Rules:
+      - Phrase as if the guest is asking it.
+      - Use "What", "When", "Where", "How", or "Can" where appropriate.
+      - Keep under 12 words if possible.
+      - Make it natural for a tourist or guest to ask.
+      - Avoid repeating the answer in the question.
+    action:
+      type: multi
+      steps:
+        - type: plugin
+          plugin: faq_webhook_vercel_app__jit_plugin.createFaqWebhook
+          params:
+            question: "{{ question }}"
+            answer: "{{ answer }}"
+    confirmation_template: "✅ Got it. I've added your FAQ: '{{ question }}'."
+paths:
+  /faq-search:
+    get:
+      tags:
+        - Search
+      operationId: searchFaq
+      summary: Search FAQs with fuzzy matching
+      x-openai-isConsequential: false
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+        - in: query
+          name: category
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching FAQs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FaqSearchResult"
+  /create:
+    post:
+      tags:
+        - Management
+      operationId: createFaqWebhook
+      summary: Create a new FAQ entry instantly via webhook
+      x-openai-isConsequential: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FaqWebhookRequest"
+      responses:
+        "200":
+          description: FAQ created successfully via webhook
+components:
+  schemas:
+    FaqSearchResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        question:
+          type: string
+        answer:
+          type: string
+        keywords:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        image_url:
+          type: string
+          nullable: true
+    FaqWebhookRequest:
+      type: object
+      required:
+        - question
+        - answer
+      properties:
+        question:
+          type: string
+        answer:
+          type: string
