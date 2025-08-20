@@ -24,15 +24,40 @@ voice_input_handler: |
       
       // Handle "confirmed" to execute pending FAQ creation
       if (lowerText.includes('confirmed') || lowerText.includes('yes') || lowerText.includes('confirm')) {
-        // Check if we have context about a FAQ to confirm
-        // This should work with CocoGPT's confirmation flow
         console.log('FAQ confirmation received via voice');
-        return `✅ Perfect! FAQ has been processed 🏝️`;
+        
+        // Check if we have pending FAQ data in session context
+        if (globalThis.pendingFaq || (typeof session !== 'undefined' && session.pendingFaq)) {
+          const pendingData = globalThis.pendingFaq || session.pendingFaq;
+          const { question, answer } = pendingData;
+          
+          try {
+            // Call the webhook to save FAQ
+            await callPlugin('createFaqWebhook', {
+              question: question,
+              answer: answer
+            });
+            
+            // Clear pending FAQ
+            if (globalThis.pendingFaq) delete globalThis.pendingFaq;
+            if (typeof session !== 'undefined' && session.pendingFaq) session.pendingFaq = null;
+            
+            return `✅ Perfect! FAQ added: "${question}" 🏝️`;
+          } catch (err) {
+            console.error('Error saving FAQ:', err);
+            return `⚠️ Got your confirmation, but something went wrong saving it. Can you repeat?`;
+          }
+        } else {
+          return "I heard you, but I'm not sure which FAQ you were confirming—could you resend?";
+        }
       }
       
       // Handle cancellation
       if (lowerText.includes('cancel') || lowerText.includes('no')) {
         console.log('FAQ cancelled via voice');
+        // Clear any pending FAQ
+        if (globalThis.pendingFaq) delete globalThis.pendingFaq;
+        if (typeof session !== 'undefined' && session.pendingFaq) session.pendingFaq = null;
         return "Okay, nothing saved 🌴";
       }
       
@@ -41,9 +66,37 @@ voice_input_handler: |
       
       if (triggerRegex.test(lowerText)) {
         console.log('FAQ creation triggered via voice:', text);
-        // Let CocoGPT handle the parsing and confirmation flow
-        // Just return a message indicating we heard the command
-        return `🎤 I heard your FAQ request. Processing...`;
+        
+        // Try to parse question and answer from the voice input
+        let cleaned = text.replace(triggerRegex, '').trim();
+        const patterns = [
+          /(?:question[:\s]+)(.+?)(?:\s+answer[:\s]+)(.+)/i,
+          /(?:q[:\s]+)(.+?)(?:\s+a[:\s]+)(.+)/i,
+          /(.+?)\s{3,}(.+)/i
+        ];
+        
+        let question = '';
+        let answer = '';
+        
+        for (const pattern of patterns) {
+          const match = cleaned.match(pattern);
+          if (match) {
+            question = match[1].trim();
+            answer = match[2].trim();
+            break;
+          }
+        }
+        
+        if (question && answer) {
+          // Store pending FAQ for confirmation
+          const pendingFaq = { question, answer };
+          if (typeof globalThis !== 'undefined') globalThis.pendingFaq = pendingFaq;
+          if (typeof session !== 'undefined') session.pendingFaq = pendingFaq;
+          
+          return `Got it! New FAQ: "${question}" → "${answer}". ✅ Confirm?`;
+        } else {
+          return `🎤 I heard your FAQ request. Could you format it as: "new FAQ, question: [your question], answer: [your answer]"?`;
+        }
       }
       
       // Don't intercept other voice commands
