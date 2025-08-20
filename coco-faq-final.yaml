@@ -97,9 +97,22 @@ x-coco-config:
       try {
         const lowerText = text.trim().toLowerCase();
 
-        // ✅ Confirmation flow
-        if (lowerText.includes('confirmed') || lowerText.includes('yes') || lowerText.includes('confirm')) {
-          console.log('FAQ confirmation received via voice');
+        // ✅ Confirmation flow - forgiving for speech-to-text variations
+        const confirmWords = ['confirmed', 'confirm', 'yes', 'yeah', 'yep', 'okay', 'ok', 'sure', 'absolutely', 'correct'];
+        const cancelWords = ['cancel', 'no', 'nope', 'stop', 'abort', 'nevermind', 'never mind'];
+        
+        // Clean the text for better matching (remove punctuation, extra spaces)
+        const cleanText = lowerText.replace(/[.,!?;]/g, '').replace(/\s+/g, ' ').trim();
+        
+        const isConfirmation = confirmWords.some(word => 
+          cleanText.includes(word) || 
+          cleanText.includes(`yes ${word}`) || 
+          cleanText.includes(`okay ${word}`) ||
+          cleanText === word
+        );
+        
+        if (isConfirmation) {
+          console.log('FAQ confirmation received via voice:', cleanText);
           if (globalThis.cocoFaqSession.pendingFaq) {
             const { question, answer } = globalThis.cocoFaqSession.pendingFaq;
             try {
@@ -127,9 +140,15 @@ x-coco-config:
           }
         }
 
-        // ❌ Cancel flow
-        if (lowerText.includes('cancel') || lowerText.includes('no')) {
-          console.log('FAQ cancelled via voice');
+        // ❌ Cancel flow - also forgiving for speech-to-text
+        const isCancellation = cancelWords.some(word => 
+          cleanText.includes(word) || 
+          cleanText === word ||
+          cleanText.includes(`no ${word}`)
+        );
+        
+        if (isCancellation) {
+          console.log('FAQ cancelled via voice:', cleanText);
           globalThis.cocoFaqSession.pendingFaq = null;
           return "Okay, nothing saved 🌴";
         }
