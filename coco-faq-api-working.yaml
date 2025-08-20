@@ -1,0 +1,299 @@
+openapi: 3.1.0
+info:
+  title: Coco FAQ API (Webhook + Supabase Sync + Auto Categories)
+  description: |
+    Manage FAQs at Coconut Beach.
+    - Webhook: instant creation for voice/automation
+    - Supabase: database persistence in `chatbot_faqs`
+    - Auto-categorization: assigns FAQs to the right category
+  version: 3.6.0
+servers:
+  - url: https://faq-webhook.vercel.app
+    description: Voice-friendly webhook
+tags:
+  - name: Search
+    description: Endpoints for finding FAQs
+  - name: Management
+    description: Endpoints for creating FAQs
+  - name: Categories
+    description: FAQ category listing
+voice_input_handler: |
+  async function handleVoiceFAQ(text) {
+    try {
+      const lowerText = text.trim().toLowerCase();
+      const triggerRegex = /^\/faq\b|^slash faq\b|^new faq\b|^add faq\b|^make faq\b|^new question\b/i;
+
+      if (triggerRegex.test(lowerText)) {
+        let cleaned = text.replace(triggerRegex, '').trim();
+
+        const patterns = [
+          /(?:q:|question:|ask:)?\s*(.+?)\s*(?:a:|answer:|reply:)?\s*(.+)/i,
+          /(.+?)\s{3,}(.+)/i
+        ];
+
+        let question = '';
+        let answer = '';
+
+        for (const pattern of patterns) {
+          const match = cleaned.match(pattern);
+          if (match) {
+            question = match[1].trim();
+            answer = match[2].trim();
+            break;
+          }
+        }
+
+        if (!question) {
+          const splitIndex = cleaned.indexOf('?') !== -1
+            ? cleaned.indexOf('?') + 1
+            : cleaned.indexOf('.') !== -1
+              ? cleaned.indexOf('.') + 1
+              : -1;
+          if (splitIndex > 0) {
+            question = cleaned.slice(0, splitIndex).trim();
+            answer = cleaned.slice(splitIndex).trim();
+          } else {
+            question = cleaned;
+            answer = '';
+          }
+        }
+
+        // Auto-categorize
+        let category = "general";
+        const catMap = {
+          "wifi": "amenities & facilities",
+          "internet": "amenities & facilities",
+          "check in": "check-in & check-out",
+          "checkout": "check-in & check-out",
+          "transfer": "arrival & transport",
+          "airport": "arrival & transport",
+          "pier": "arrival & transport",
+          "motorbike": "hotel services",
+          "scooter": "hotel services",
+          "zipline": "activities",
+          "snorkel": "amenities & facilities",
+          "swim": "beach & safety",
+          "pool": "amenities & facilities",
+          "restaurant": "food & dining",
+          "menu": "food & dining",
+          "massage": "amenities & facilities",
+          "party": "events & parties"
+        };
+        for (const [keyword, cat] of Object.entries(catMap)) {
+          if (question.toLowerCase().includes(keyword)) {
+            category = cat;
+            break;
+          }
+        }
+
+        // 1. Save to webhook
+        await callPlugin('createFaqWebhook', {
+          question: question,
+          answer: answer
+        });
+
+        // 2. Mirror into Supabase with category
+        await callPlugin('insertFaq', {
+          category: category || "general",
+          question: question,
+          keywords: [],
+          answer: answer,
+          is_active: true
+        });
+
+        return `✅ Got it. I've added your FAQ in category "${category}": "${question}"`;
+      }
+
+      return `👋 I heard: "${text}". This wasn't an FAQ command, so let's continue chatting normally.`;
+    } catch (err) {
+      console.error('Voice handler error:', err);
+      return "⚠️ Sorry, something went wrong while processing your voice command. Let's continue chatting normally.";
+    }
+  }
+commands:
+  - name: faq_creation
+    description: Create a new FAQ entry from a question and answer.
+    triggers:
+      - /^\/faq\b/i
+      - /^slash faq\b/i
+      - /^new faq\b/i
+      - /^add faq\b/i
+      - /^make faq\b/i
+      - /^new question\b/i
+    input_parsing:
+      type: regex
+      patterns:
+        - pattern: (?:q:|question:|ask:)?\s*(.+?)\s*(?:a:|answer:|reply:)?\s*(.+)
+          groups:
+            question: 1
+            answer: 2
+        - pattern: (.+?)\s{3,}(.+)
+          groups:
+            question: 1
+            answer: 2
+    fallback_if_no_match:
+      split_by_first_sentence: true
+    ai_fallback_generate_question: true
+    ai_fallback_generate_question_prompt: |
+      You are CocoGPT, the Coconut Beach FAQ assistant.
+      The user has provided an answer but no explicit question.
+      Your task is to create a short, clear, guest-friendly FAQ question based on the answer.
+
+      Rules:
+      - Phrase as if the guest is asking it.
+      - Use "What", "When", "Where", "How", or "Can" where appropriate.
+      - Keep under 12 words if possible.
+      - Make it natural for a tourist or guest to ask.
+      - Avoid repeating the answer in the question.
+    action:
+      type: multi
+      steps:
+        - type: plugin
+          plugin: faq_webhook_vercel_app__jit_plugin.createFaqWebhook
+          params:
+            question: "{{ question }}"
+            answer: "{{ answer }}"
+        - type: plugin
+          plugin: insertFaq
+          params:
+            category: "{{ auto_category | default('general') }}"
+            question: "{{ question }}"
+            keywords: []
+            answer: "{{ answer }}"
+            is_active: true
+    confirmation_template: "✅ Got it. I've added your FAQ in '{{ auto_category | default('general') }}': '{{ question }}'."
+paths:
+  /faq-search:
+    get:
+      tags:
+        - Search
+      operationId: searchFaq
+      summary: Search FAQs with fuzzy matching
+      x-openai-isConsequential: false
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+        - in: query
+          name: category
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Matching FAQs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FaqSearchResult"
+  /create:
+    post:
+      tags:
+        - Management
+      operationId: createFaqWebhook
+      summary: Create a new FAQ entry instantly via webhook
+      x-openai-isConsequential: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FaqWebhookRequest"
+      responses:
+        "200":
+          description: FAQ created successfully via webhook
+  /rest/v1/chatbot_faqs:
+    post:
+      tags:
+        - Management
+      operationId: insertFaq
+      summary: Insert FAQ into Supabase `chatbot_faqs`
+      x-openai-isConsequential: true
+      servers:
+        - url: https://wcplwmvbhreevxvsdmog.supabase.co
+      security:
+        - supabaseServiceRole: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - category
+                - question
+                - answer
+              properties:
+                category:
+                  type: string
+                  default: general
+                question:
+                  type: string
+                keywords:
+                  type: array
+                  items:
+                    type: string
+                answer:
+                  type: string
+                is_active:
+                  type: boolean
+                image_url:
+                  type: string
+                  nullable: true
+      responses:
+        "201":
+          description: FAQ inserted successfully
+components:
+  securitySchemes:
+    supabaseServiceRole:
+      type: apiKey
+      in: header
+      name: Authorization
+      x-placeholder: Bearer <SERVICE_ROLE_KEY>
+      x-additional-headers:
+        apikey: <SERVICE_ROLE_KEY>
+  schemas:
+    FaqSearchResult:
+      type: object
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        question:
+          type: string
+        answer:
+          type: string
+        keywords:
+          type: array
+          items:
+            type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        image_url:
+          type: string
+          nullable: true
+    FaqWebhookRequest:
+      type: object
+      required:
+        - question
+        - answer
+      properties:
+        question:
+          type: string
+        answer:
+          type: string
