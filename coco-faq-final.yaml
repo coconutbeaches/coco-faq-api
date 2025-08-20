@@ -73,7 +73,10 @@ paths:
 
 x-coco-config:
   voice_input_handler: |
-    let session = {}; // temporary in-memory session for FAQs
+    // Use globalThis for persistent session state across requests
+    if (!globalThis.cocoFaqSession) {
+      globalThis.cocoFaqSession = {};
+    }
 
     function detectCategory(question) {
       const q = question.toLowerCase();
@@ -97,8 +100,8 @@ x-coco-config:
         // ✅ Confirmation flow
         if (lowerText.includes('confirmed') || lowerText.includes('yes') || lowerText.includes('confirm')) {
           console.log('FAQ confirmation received via voice');
-          if (session.pendingFaq) {
-            const { question, answer } = session.pendingFaq;
+          if (globalThis.cocoFaqSession.pendingFaq) {
+            const { question, answer } = globalThis.cocoFaqSession.pendingFaq;
             try {
               // Detect category
               const category = detectCategory(question);
@@ -110,10 +113,10 @@ x-coco-config:
                 body: JSON.stringify({ question, answer })
               });
 
-              // Note: The webhook already pushes to Supabase, so we don't need the second call
-              // This avoids duplication
+              // Webhook already pushes to Supabase - confirmed! ✅
+              console.log('FAQ saved via webhook -> Supabase');
 
-              session.pendingFaq = null;
+              globalThis.cocoFaqSession.pendingFaq = null;
               return `✅ Perfect! FAQ added in *${category}*: "${question}" → "${answer}"`;
             } catch (err) {
               console.error("Error saving FAQ:", err);
@@ -127,7 +130,7 @@ x-coco-config:
         // ❌ Cancel flow
         if (lowerText.includes('cancel') || lowerText.includes('no')) {
           console.log('FAQ cancelled via voice');
-          session.pendingFaq = null;
+          globalThis.cocoFaqSession.pendingFaq = null;
           return "Okay, nothing saved 🌴";
         }
 
@@ -146,7 +149,8 @@ x-coco-config:
           if (match) {
             const question = match[1].trim();
             const answer = match[2].trim();
-            session.pendingFaq = { question, answer };
+            globalThis.cocoFaqSession.pendingFaq = { question, answer };
+            console.log('Stored pending FAQ:', { question, answer });
             return `Got it! New FAQ: "${question}" → "${answer}". ✅ Confirm?`;
           } else {
             return `🎤 I heard your FAQ request. Could you format it as: "new FAQ, question: [your question], answer: [your answer]"?`;
