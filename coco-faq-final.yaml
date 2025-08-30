@@ -41,12 +41,12 @@ paths:
       responses:
         "200":
           description: FAQ created via webhook
-
   /insertFaq:
     post:
-      tags: [Management]
+      tags:
+        - Management
       operationId: insertFaq
-      summary: Insert FAQ into Supabase
+      summary: Insert FAQ into Supabase with full metadata
       x-openai-isConsequential: false
       requestBody:
         required: true
@@ -54,22 +54,45 @@ paths:
           application/json:
             schema:
               type: object
+              required: ["question", "answer"]
               properties:
                 category:
                   type: string
+                  description: "FAQ category (auto-detected if not provided)"
                 question:
                   type: string
+                  description: "The FAQ question"
                 keywords:
                   type: array
                   items:
                     type: string
+                  description: "Search keywords (auto-generated if not provided)"
                 answer:
                   type: string
+                  description: "The FAQ answer"
                 is_active:
                   type: boolean
+                  default: true
+                  description: "Whether the FAQ is active/published"
+                image_url:
+                  type: string
+                  description: "Optional image URL"
       responses:
         "200":
-          description: FAQ inserted into Supabase
+          description: FAQ inserted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  confirmation_message:
+                    type: string
+        "400":
+          description: Bad request - missing required fields
+        "500":
+          description: Database error
 
 x-coco-config:
   voice_input_handler: |
@@ -90,7 +113,16 @@ x-coco-config:
       if (q.includes("eco") || q.includes("sustain") || q.includes("environment")) return "eco & environment";
       if (q.includes("emergency") || q.includes("urgent") || q.includes("medical")) return "emergencies";
       if (q.includes("massage") || q.includes("gym") || q.includes("amenities") || q.includes("library") || q.includes("parking")) return "amenities & facilities";
+      if (q.includes("market") || q.includes("walking street") || q.includes("activity") || q.includes("tour")) return "activities";
       return "general";
+    }
+
+    function extractKeywords(question, answer) {
+      const text = `${question} ${answer}`.toLowerCase();
+      const words = text.match(/\b\w{3,}\b/g) || [];
+      const stopWords = ['the', 'and', 'are', 'for', 'you', 'can', 'what', 'how', 'where', 'when', 'why', 'this', 'that', 'with', 'have', 'from', 'they', 'been', 'will', 'would', 'could', 'should'];
+      const filtered = words.filter(word => !stopWords.includes(word));
+      return [...new Set(filtered)].slice(0, 8);
     }
 
     async function handleVoiceFAQ(text) {
@@ -119,18 +151,33 @@ x-coco-config:
               // Detect category
               const category = detectCategory(question);
 
-              // Push to webhook (using full URL)
-              await fetch("https://faq-webhook.vercel.app/create", {
+              // Extract keywords from question/answer
+              const keywords = extractKeywords(question, answer);
+
+              // Push to advanced webhook endpoint with full metadata
+              const response = await fetch("https://faq-webhook.vercel.app/insertFaq", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ question, answer })
+                body: JSON.stringify({ 
+                  category, 
+                  question, 
+                  answer,
+                  keywords,
+                  is_active: true 
+                })
               });
 
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+              }
+
+              const result = await response.json();
+
               // Webhook already pushes to Supabase - confirmed! ✅
-              console.log('FAQ saved via webhook -> Supabase');
+              console.log('FAQ saved via webhook -> Supabase:', result);
 
               globalThis.cocoFaqSession.pendingFaq = null;
-              return `✅ Perfect! FAQ added in *${category}*: "${question}" → "${answer}"`;
+              return `✅ Perfect! FAQ added in *${category}*: "${question}" → "${answer}" (ID: ${result.id})`;
             } catch (err) {
               console.error("Error saving FAQ:", err);
               return "⚠️ Got your confirmation, but something went wrong saving it. Can you repeat?";
