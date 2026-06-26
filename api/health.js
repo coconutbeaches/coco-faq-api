@@ -1,6 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+import { hasSupabaseAdminConfig, supabase } from './supabaseAdmin.js';
 
 export default async function handler(req, res) {
   // Add CORS headers
@@ -31,7 +29,7 @@ export default async function handler(req, res) {
       version: '1.4.0',
       environment: {
         supabase_url: process.env.SUPABASE_URL ? 'configured' : 'missing',
-        supabase_key: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'configured' : 'missing'
+        supabase_key: hasSupabaseAdminConfig() ? 'configured' : 'missing'
       },
       database: {
         connected: true,
@@ -46,7 +44,7 @@ export default async function handler(req, res) {
       error: err.message,
       environment: {
         supabase_url: process.env.SUPABASE_URL ? 'configured' : 'missing',
-        supabase_key: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'configured' : 'missing'
+        supabase_key: hasSupabaseAdminConfig() ? 'configured' : 'missing'
       }
     });
   }

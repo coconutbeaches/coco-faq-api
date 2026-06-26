@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { hasSupabaseAdminConfig, supabase } from './supabaseAdmin.js';
 import natural from 'natural';
-
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 // Expanded trigger phrases (lowercase)
 const TRIGGER_PHRASES = [
@@ -89,7 +87,7 @@ export default async function handler(req, res) {
 
   try {
     // Add environment variable validation
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!hasSupabaseAdminConfig()) {
       console.error('Missing Supabase environment variables');
       return res.status(500).json({
         error: 'Server configuration error',

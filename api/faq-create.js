@@ -1,7 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
-
-// Initialize Supabase client
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+import { supabase } from './supabaseAdmin.js';
 
 // Lightweight keyword extraction
 function extractKeywords(text) {

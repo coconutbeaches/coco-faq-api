@@ -1,11 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+import { hasSupabaseAdminConfig, supabase } from './supabaseAdmin.js';
 
 export default async function handler(req, res) {
   try {
     console.log('SUPABASE_URL:', process.env.SUPABASE_URL ? 'Set' : 'Missing');
-    console.log('SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Missing');
+    console.log('SUPABASE_SECRET_KEY:', hasSupabaseAdminConfig() ? 'Set' : 'Missing');
     
     // Test 1: Try to list tables
     const { data: tables, error: tablesError } = await supabase
@@ -33,7 +31,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       environment: {
         supabase_url: process.env.SUPABASE_URL ? 'Set' : 'Missing',
-        supabase_key: process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'Missing'
+        supabase_key: hasSupabaseAdminConfig() ? 'Set' : 'Missing'
       },
       tests: {
         tables: { error: tablesError?.message || null, data: tables ? 'Success' : 'Failed' },

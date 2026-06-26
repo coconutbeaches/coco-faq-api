@@ -1,7 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './supabaseAdmin.js';
 import natural from 'natural';
-
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 // Helper: extract keywords automatically from question+answer
 function extractKeywords(question, answer) {
